@@ -1077,8 +1077,8 @@ def make_prediction_output(
         }
     )
 
-csv_path= "/content/drive/MyDrive/MSME_data/final_dataset.csv"
-output_dir = "/content/drive/MyDrive/MSME_data/msme_outputs"
+csv_path= "data/final_dataset.csv"
+output_dir = "msme_outputs"
 phase1_n_iter = 20
 phase2_n_iter = 20
 
