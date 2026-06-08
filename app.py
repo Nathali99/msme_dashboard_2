@@ -486,7 +486,7 @@ def show_lightgbm_importance(bundle: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="MSME Survival Probability Dashboard", layout="wide")
+    st.set_page_config(page_title="iMEWS+", layout="wide")
     st.title("MSME Survival Probability Dashboard")
     st.caption(
         "This dashboard uses the merged Phase 1 -> Phase 2 model bundle. "
