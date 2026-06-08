@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import sys
 import types
+import re
 
 import joblib
 import numpy as np
@@ -301,6 +302,52 @@ def parse_optional_float(value: str) -> float:
     return float(value)
 
 
+YEAR_LABELS = {
+    "2020": "four years before",
+    "2021": "three years before",
+    "2022": "two years before",
+    "2023": "one year before",
+}
+
+
+def clean_display_name(name: str) -> str:
+    """Convert training column names into readable dashboard labels."""
+    replacements = {
+        "foraml": "formal",
+        "MSME": "MSME",
+    }
+    cleaned = name.replace("_", " ").replace("-", " ")
+    for old_text, new_text in replacements.items():
+        cleaned = cleaned.replace(old_text, new_text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    # Keep simple title casing for readability.
+    words = []
+    for word in cleaned.split(" "):
+        if word.upper() == "MSME":
+            words.append("MSME")
+        else:
+            words.append(word.capitalize())
+    return " ".join(words)
+
+
+def friendly_feature_label(column_name: str) -> str:
+    """Show a user-friendly label while keeping the original model column name internally."""
+    for year, period_label in YEAR_LABELS.items():
+        suffix = f"_{year}"
+        middle = f"_{year}_"
+
+        if column_name.endswith(suffix):
+            base_name = column_name[: -len(suffix)]
+            return f"{clean_display_name(base_name)} ({period_label})"
+
+        if middle in column_name:
+            base_name = column_name.replace(middle, "_")
+            return f"{clean_display_name(base_name)} ({period_label})"
+
+    return clean_display_name(column_name)
+
+
 def optional_numeric_input(label: str, key: str, help_text: str = "") -> float:
     raw = st.text_input(label, value="", key=key, help=help_text)
     try:
@@ -310,11 +357,18 @@ def optional_numeric_input(label: str, key: str, help_text: str = "") -> float:
         st.stop()
 
 
-def binary_input(label: str, key: str, help_text: str = "") -> float:
-    choice = st.selectbox(label, options=["Missing", "0", "1"], index=0, key=key, help=help_text)
+def binary_input(label: str, key: str, feature_name: str, help_text: str = "") -> float:
+    if feature_name == "Owner_gender":
+        # Keep the numeric code visible so it matches the training data.
+        # Swap these labels if your training dataset used the opposite gender coding.
+        options = ["Missing", "0 - Female", "1 - Male"]
+    else:
+        options = ["Missing", "0 - No", "1 - Yes"]
+
+    choice = st.selectbox(label, options=options, index=0, key=key, help=help_text)
     if choice == "Missing":
         return np.nan
-    return float(choice)
+    return float(choice.split(" - ")[0])
 
 
 @st.cache_resource
@@ -402,9 +456,9 @@ def render_numeric_group(group_label: str, columns: List[str], raw_values: Dict[
         for i, col_name in enumerate(columns):
             with cols[i % 3]:
                 raw_values[col_name] = optional_numeric_input(
-                    label=col_name,
+                    label=friendly_feature_label(col_name),
                     key=f"num_{col_name}",
-                    help_text="Leave blank if unknown. Missing values are handled using the training-set imputer.",
+                    help_text=f"Model column: {col_name}. Leave blank if unknown. Missing values are handled using the training-set imputer.",
                 )
 
 
@@ -419,7 +473,7 @@ def collect_manual_input(builder: Phase2FactorFeatureBuilder) -> tuple[pd.DataFr
         st.subheader("Manual Phase 2 input")
         st.caption(
             "Enter the available values. Blank numeric values are allowed and will be imputed using the fitted training pipeline. "
-            "For binary columns, choose 0, 1, or Missing."
+            "For binary columns, use 0 - No / 1 - Yes. For owner gender, use Female or Male according to the training data coding."
         )
 
         raw_values[ID_COL] = st.text_input("Business ID", value="new_business", key="business_id")
@@ -441,9 +495,10 @@ def collect_manual_input(builder: Phase2FactorFeatureBuilder) -> tuple[pd.DataFr
                 for i, col_name in enumerate(categorical_columns):
                     with cols[i % 3]:
                         raw_values[col_name] = binary_input(
-                            label=col_name,
+                            label=friendly_feature_label(col_name),
                             key=f"cat_{col_name}",
-                            help_text="Use the same 0/1 coding used in the training dataset. Leave as Missing if unknown.",
+                            feature_name=col_name,
+                            help_text="Leave as Missing if unknown. The selected value is converted back to the original 0/1 code used by the model.",
                         )
 
         submitted = st.form_submit_button("Predict survival probability")
@@ -487,13 +542,12 @@ def show_lightgbm_importance(bundle: Dict[str, Any]) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="iMEWS+", layout="wide")
-    st.title("MSME Survival Probability Dashboard")
+    st.title("Intelligent MSME Early Warning System")
     st.caption(
-        "This dashboard uses the merged Phase 1 -> Phase 2 model bundle. "
-        "Phase 2 predicts the Phase 1 survival probability using factor-analysis inputs and categorical variables."
+        "This dashboard predicts survival probability of a Micro Enterprise."
     )
 
-    default_bundle_path = Path("phase2_outputs/merged_phase1_phase2_bundle.joblib")
+    default_bundle_path = Path("model_bundle.joblib")
     bundle_path = st.sidebar.text_input("Merged model bundle path", str(default_bundle_path))
 
     try:
